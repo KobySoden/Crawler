@@ -84,7 +84,7 @@ class crawler:
         return key
     
     def addtobloom(self):
-        rb.bfAdd(DOMAIN, self.subdirectory)
+        return rb.bfAdd(DOMAIN, self.subdirectory)
     
     def onbloom(item):
         rb.bfExists(DOMAIN, item)
@@ -93,18 +93,21 @@ class crawler:
 def processpage(subdirectory):
     if rb.bfExists(DOMAIN, subdirectory) != 1:
         print(f"Processing {DOMAIN}{subdirectory}")
+        #TODO move crawler around instead of making a new crawler every page
         spider = crawler("https://en.wikipedia.org", subdirectory)
         spider.extractlinks() #TODO dont add links that are on the bloom filter to the Q
         spider.queuelinks()
         spider.addtobloom()
         spider.sendpagetodb()
+    else:
+        print(f"Already Processed {DOMAIN}{subdirectory}")
 
 
 def callback(ch, method, properties, body):
     subdir = body.decode()
     processpage(subdir)
 
-    if (int(r.get(IDCOUNTER).decode()) > 1000):
+    if (int(r.get(IDCOUNTER).decode()) > 100000):
         channel.stop_consuming()
 
 if __name__ == "__main__":
