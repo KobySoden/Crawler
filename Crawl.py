@@ -6,6 +6,7 @@ import validators
 import RabbitWrap
 import redis
 import time
+from redisbloom.client import Client
 
 TIMEOUT = 5                         #timeout(s) for requests
 DBDATA = 'crawldata'                #name of db items ex: DBDATA:1
@@ -14,6 +15,7 @@ DOMAIN = 'https://en.wikipedia.org' #domain being scanned
 
 #connect to db
 r = redis.Redis(host='192.168.1.245', port=6379, db=0)
+rb = Client(host='192.168.1.245')
 
 #format of redis db
 #respones = r.hgetall(DBDATA) #{b'subdirectory': b'string', b'domain': b'string', b'parent': b'string', b'lastcrawl': b'time', b'scrapedata': b'pickle', b'parsed': b'int'}
@@ -80,14 +82,22 @@ class crawler:
         r.hset(key, "parsed", 0)
         print(f"Inserted {key} into the db")
         return key
+    
+    def addtobloom(self):
+        rb.bfAdd(DOMAIN, self.subdirectory)
+    
+    def onbloom(item):
+        rb.bfExists(DOMAIN, item)
 
 #TODO move this into the class above
 def processpage(subdirectory):
-    print(f"Processing {DOMAIN}{subdirectory}")
-    spider = crawler("https://en.wikipedia.org", subdirectory)
-    spider.extractlinks()
-    spider.queuelinks()
-    spider.sendpagetodb()
+    if rb.bfExists(DOMAIN, subdirectory) != 1:
+        print(f"Processing {DOMAIN}{subdirectory}")
+        spider = crawler("https://en.wikipedia.org", subdirectory)
+        spider.extractlinks() #TODO dont add links that are on the bloom filter to the Q
+        spider.queuelinks()
+        spider.addtobloom()
+        spider.sendpagetodb()
 
 
 def callback(ch, method, properties, body):
