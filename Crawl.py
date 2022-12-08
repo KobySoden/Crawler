@@ -20,34 +20,6 @@ rb = Client(host='192.168.1.245')
 #format of redis db
 #respones = r.hgetall(DBDATA) #{b'subdirectory': b'string', b'domain': b'string', b'parent': b'string', b'lastcrawl': b'time', b'scrapedata': b'pickle', b'parsed': b'int'}
 
-#class for storing/manipulating data
-class scrapedata:
-    #TODO load this object from the db as an option for initialiazation
-    def __init__(self, domain, subdirectory, parent, html = None):
-        self.subdirectory = subdirectory
-        self.domain = domain
-        self.parent = parent
-        self.html = html
-        self.nextsubdirectories = []
-    #create db entry for this record
-    def addtodb(self):
-        key = DBDATA + ":" + str(r.incr(IDCOUNTER))
-        r.hset(key, "domain", self.domain) 
-        r.hset(key, "subdirectory", self.subdirectory)
-        r.hset(key, "parent", self.parent)
-        r.hset(key, "lastcrawl", time.ctime())
-        r.hset(key, "scrapedata", pickle.dumps(self.html)) 
-        r.hset(key, "parsed", 0)
-        return key
-    def extractlinks(self):
-        aTags = self.html.find_all('a')
-        for string in aTags:
-            newSubDir = string.get('href')        
-            if newSubDir != None and validators.url(self.domain+newSubDir, True) == True and newSubDir.startswith('//') != True:
-                self.nextsubdirectories.append(newSubDir)
-    def __str__(self):
-        return f"{self.domain}{self.subdirectory} from {self.parent}"
-
 class crawler:
     def __init__(self, domain, subdirectory):
         self.domain = domain
@@ -115,5 +87,3 @@ if __name__ == "__main__":
     channel = RabbitWrap.connect()
     RabbitWrap.recieve(DOMAIN, channel, callback)
     channel.close()
-    
-
