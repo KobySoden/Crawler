@@ -30,7 +30,6 @@ def decode(ch, method, properties, body):
     #stop consuming loop
     #channel.stop_consuming()
     print(body.decode())
-    return body.decode()
 
 if __name__ == "__main__":
     #channel = connect()
@@ -38,5 +37,5 @@ if __name__ == "__main__":
     #channel.close()
 
     channel = connect()
-    recieve('https://en.wikipedia.org', channel, decode)
+    print(recieve('https://en.wikipedia.org', channel, decode))
     channel.close()

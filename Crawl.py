@@ -7,6 +7,7 @@ import RabbitWrap
 import redis
 import time
 from redisbloom.client import Client
+import pika.exceptions
 
 TIMEOUT = 5                         #timeout(s) for requests
 DBDATA = 'crawldata'                #name of db items ex: DBDATA:1
@@ -26,16 +27,45 @@ class crawler:
         self.subdirectory = subdirectory
         self.start = domain+subdirectory
         self.parent = "start"
-        self.response = requests.get(self.start, timeout=TIMEOUT)
-        self.html = BeautifulSoup(self.response.text,'lxml')
         self.nextsubdirectories = []
-        
+        self.trail = [subdirectory]
+        if(self.request()):
+            self.crawl()
+            
+    def crawl(self):
+        if(self.onbloom() != 1):
+            self.processpage()
+            #self.navigate() #TODO figure out how to feed the next page into this method
+        else:
+            print(f"Already Processed {DOMAIN}{self.subdirectory}")
+    
+    def processpage(self):
+            self.extractlinks() #TODO dont add links that are on the bloom filter to the Q
+            self.queuelinks()
+            self.addtobloom()
+            self.sendpagetodb()
+
+    def request(self):
+        try:
+            self.response = requests.get(self.start, timeout=TIMEOUT)
+            self.html = BeautifulSoup(self.response.text,'lxml')
+            return True
+        except requests.exceptions.ReadTimeout:
+            print("Request Timed Out!")
+            return False
+    
+    def navigate(self, destination):
+        self.parent = self.subdirectory
+        self.trail.append(self.subdirectory)
+        self.subdirectory = destination #put new subdir in as directory
+
     def extractlinks(self):
         aTags = self.html.find_all('a')
         for string in aTags:
             newSubDir = string.get('href')        
             if newSubDir != None and validators.url(self.domain+newSubDir, True) == True and newSubDir.startswith('//') != True:
                 self.nextsubdirectories.append(newSubDir)
+    
     def queuelinks(self):
         #TODO move Q to redis
         channel = RabbitWrap.connect()
@@ -59,31 +89,49 @@ class crawler:
         return rb.bfAdd(DOMAIN, self.subdirectory)
     
     def onbloom(item):
-        rb.bfExists(DOMAIN, item)
+        return rb.bfExists(DOMAIN, item)
 
 #TODO move this into the class above
 def processpage(subdirectory):
     if rb.bfExists(DOMAIN, subdirectory) != 1:
         print(f"Processing {DOMAIN}{subdirectory}")
         #TODO move crawler around instead of making a new crawler every page
-        spider = crawler("https://en.wikipedia.org", subdirectory)
-        spider.extractlinks() #TODO dont add links that are on the bloom filter to the Q
-        spider.queuelinks()
-        spider.addtobloom()
-        spider.sendpagetodb()
+        spider = crawler(DOMAIN, subdirectory)
+        #spider.extractlinks() #TODO dont add links that are on the bloom filter to the Q
+        #spider.queuelinks()
+        #spider.addtobloom()
+        #spider.sendpagetodb()
     else:
         print(f"Already Processed {DOMAIN}{subdirectory}")
 
-
 def callback(ch, method, properties, body):
-    subdir = body.decode()
-    processpage(subdir)
-
+    subdirectory = body.decode()
+    if spider == None:
+        spider = crawler(DOMAIN, subdirectory)
+    else:
+        spider.navigate(subdirectory)
+        spider.crawl()
     if (int(r.get(IDCOUNTER).decode()) > 100000):
         channel.stop_consuming()
 
 if __name__ == "__main__":
     #processpage('/wiki/Mexico') #start page
-    channel = RabbitWrap.connect()
-    RabbitWrap.recieve(DOMAIN, channel, callback)
-    channel.close()
+
+    #opt 1
+    #TODO create crawler
+    #TODO call crawl method on first crawler manually
+    #TODO tell navigate all other crawlers
+
+    #opt2
+    #TODO create a thread that manages the Q of a crawler
+    #TODO add items to Q
+    #TODO Have crawler pull items off the Q and visit those pages
+
+    while(True):
+        try:
+            channel = RabbitWrap.connect()
+            RabbitWrap.recieve(DOMAIN, channel, callback())
+            channel.close()
+        except pika.exceptions.StreamLostError:
+            print("Connection Error!")
+            print("Attempting to reconnect")
